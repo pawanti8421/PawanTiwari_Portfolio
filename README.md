@@ -1,18 +1,20 @@
 # Pawan Tiwari — Developer Portfolio
 
+Live: https://www.pawantiwari.co.in/
+
 A premium, highly interactive developer portfolio built with React + Vite + JavaScript.
 
 ## 🚀 Tech Stack
 
-| Layer       | Technology                            |
-|-------------|---------------------------------------|
-| Framework   | React 18 + Vite 5                     |
-| Language    | JavaScript                            |
-| Styling     | CSS Custom Properties (design tokens) |
-| Fonts       | Fraunces · IBM Plex Mono · Plus Jakarta Sans |
-| Icons       | Lucide React                          |
-| Canvas      | HTML5 Canvas API (orbital animation)  |
-| Contact     | EmailJS                               |
+| Layer     | Technology                                   |
+| --------- | -------------------------------------------- |
+| Framework | React 18 + Vite 5                            |
+| Language  | JavaScript                                   |
+| Styling   | CSS Custom Properties (design tokens)        |
+| Fonts     | Fraunces · IBM Plex Mono · Plus Jakarta Sans |
+| Icons     | Lucide React                                 |
+| Canvas    | HTML5 Canvas API (orbital animation)         |
+| Contact   | EmailJS                                      |
 
 ## 📁 Folder Structure
 
@@ -111,28 +113,28 @@ npm run preview
 5. In `src/sections/Contact/Contact.tsx`, replace the `setTimeout` mock with:
 
 ```typescript
-import emailjs from '@emailjs/browser'
+import emailjs from "@emailjs/browser";
 
 emailjs.send(
   import.meta.env.VITE_EMAILJS_SERVICE_ID,
   import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
   { from_name: form.name, from_email: form.email, message: form.message },
   import.meta.env.VITE_EMAILJS_PUBLIC_KEY,
-)
+);
 ```
 
 ## 🎨 Customizing Content
 
 All content lives in `src/data/`. Edit these files to update your portfolio:
 
-| File              | Content                    |
-|-------------------|----------------------------|
-| `personal.ts`     | Name, bio, links, contact  |
-| `skills.ts`       | Skills by category         |
-| `experience.ts`   | Work experience            |
-| `projects.ts`     | Project showcase           |
-| `terminal.ts`     | Terminal command responses |
-| `github.ts`       | GitHub stats & repo cards  |
+| File            | Content                    |
+| --------------- | -------------------------- |
+| `personal.ts`   | Name, bio, links, contact  |
+| `skills.ts`     | Skills by category         |
+| `experience.ts` | Work experience            |
+| `projects.ts`   | Project showcase           |
+| `terminal.ts`   | Terminal command responses |
+| `github.ts`     | GitHub stats & repo cards  |
 
 ## 📦 Adding EmailJS Package
 
@@ -154,4 +156,4 @@ npm run build
 
 ---
 
-Built with ❤️ for Pawan Tiwari
+Pawan Tiwari
