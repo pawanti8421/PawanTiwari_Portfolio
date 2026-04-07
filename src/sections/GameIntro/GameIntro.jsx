@@ -1,8 +1,194 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useInView } from "@/hooks";
 
+/* ─────────────────────────────────────────
+   RESPONSIVE CSS
+   Key fix: on mobile force 4:3 canvas area
+   so overlays actually have room to breathe
+───────────────────────────────────────── */
+const GAME_CSS = `
+  /* ── Section wrapper ── */
+  .game-section { width: 100%; }
+  .game-section .section-wrap { padding-bottom: 118px; }
+
+  /* ── Outer window ── */
+  .game-window {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(245,158,11,0.15);
+    box-shadow: 0 0 60px rgba(245,158,11,0.07), 0 30px 80px rgba(0,0,0,0.7);
+  }
+
+  /* ── Titlebar ── */
+  .game-titlebar {
+    background: #0f0f0f;
+    border-bottom: 1px solid rgba(245,158,11,0.1);
+    padding: 9px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .game-tb-dots { display: flex; gap: 6px; flex-shrink: 0; }
+  .game-tb-dot  { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+  .game-tb-title {
+    font-size: 11px; color: var(--text3);
+    margin-left: 8px; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .game-tb-right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* ── Canvas wrapper ── */
+  .game-canvas-wrap {
+    position: relative;
+    line-height: 0;
+    /* natural aspect from canvas attrs on desktop */
+  }
+  .game-canvas {
+    display: block;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  /* ── Overlay: covers canvas, no scroll ── */
+  .game-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    font-family: var(--font-mono);
+    z-index: 10;
+    overflow: hidden; /* never scroll */
+  }
+
+  /* ── Idle ── */
+  .game-idle-inner { text-align: center; width: 100%; max-width: 440px; padding: 0 20px; }
+  .game-logo { font-size: clamp(30px,7vw,58px); font-weight: 900; letter-spacing: -0.03em; line-height: 1; }
+  .game-subtitle { color: var(--emerald); font-size: 10px; letter-spacing: 0.2em; margin: 8px 0 16px; }
+  .game-rules { background: rgba(245,158,11,0.05); border: 1px solid rgba(245,158,11,0.18); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; text-align: left; }
+  .game-rule-row { display: flex; gap: 8px; margin-bottom: 7px; align-items: flex-start; }
+  .game-rule-k { color: var(--amber); font-size: 10px; min-width: 76px; flex-shrink: 0; line-height: 1.4; }
+  .game-rule-v { color: var(--text2); font-size: 10px; line-height: 1.4; flex: 1; }
+
+  /* ── Reveal ── */
+  .game-reveal-inner { width: 90%; max-width: 520px; }
+  .game-reveal-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; min-width: 0; }
+  .game-reveal-icon { width: 40px; height: 40px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .game-reveal-meta { flex: 1; min-width: 0; }
+  .game-reveal-stage-label { font-size: 10px; letter-spacing: 0.12em; margin-bottom: 2px; }
+  .game-reveal-title { font-size: clamp(13px,2vw,19px); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .game-reveal-badge { font-size: 10px; padding: 3px 9px; border-radius: 5px; flex-shrink: 0; }
+  .game-reveal-body { border-radius: 9px; padding: 12px 14px; }
+  .game-reveal-row { display: flex; gap: 10px; margin-bottom: 7px; align-items: flex-start; animation: fadeIn 0.25s ease; }
+  .game-reveal-key { font-size: 10px; font-weight: 600; letter-spacing: 0.07em; font-family: monospace; line-height: 1.5; flex-shrink: 0; min-width: 88px; }
+  .game-reveal-val { color: var(--text); font-size: 11px; line-height: 1.5; word-break: break-word; flex: 1; }
+
+  /* ── Game Over ── */
+  .game-over-inner { text-align: center; width: 90%; max-width: 360px; }
+  .game-over-title { font-size: clamp(22px,5vw,42px); font-weight: 900; color: #f43f5e; margin-bottom: 6px; }
+
+  /* ── Complete ── */
+  .game-complete-inner { text-align: center; width: 92%; max-width: 500px; }
+  .game-complete-title { font-size: clamp(18px,4vw,34px); font-weight: 900; margin-bottom: 8px; }
+  .game-contact-box { background: rgba(245,158,11,0.05); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; text-align: left; }
+  .game-contact-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-start; }
+  .game-contact-key { color: var(--amber); font-size: 10px; min-width: 72px; flex-shrink: 0; }
+  .game-contact-val { color: var(--text); font-size: 10px; word-break: break-all; flex: 1; min-width: 0; line-height: 1.4; }
+
+  /* ── Stage pills ── */
+  .game-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+  .game-pill  { display: flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; transition: all 0.4s; }
+  .game-pill-label { font-size: 9px; letter-spacing: 0.05em; }
+
+  /* ── Footer ── */
+  .game-footer { background: #0a0a0a; border-top: 1px solid rgba(245,158,11,0.08); padding: 7px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  /* ══════════════════════════════════
+     MOBILE — ≤600px
+     Force 4:3 canvas area so overlays
+     have ~280px height to work with
+  ══════════════════════════════════ */
+  @media (max-width: 600px) {
+    /* Make canvas area taller (4:3 instead of natural 2.5:1) */
+    .game-canvas-wrap {
+      aspect-ratio: 4 / 3;
+      overflow: hidden;
+    }
+    /* Stretch canvas to fill the taller box */
+    .game-canvas {
+      width: 100% !important;
+      height: 100% !important;  /* fills the 4:3 container */
+      object-fit: fill;
+    }
+
+    /* Titlebar: hide long label */
+    .game-tb-title { display: none; }
+    .game-titlebar  { padding: 8px 12px; }
+
+    /* Section: tighter top/bottom spacing */
+    .game-section .section-wrap { padding: 48px 14px 36px; }
+
+    /* Pills: smaller */
+    .game-pill       { padding: 3px 8px; }
+    .game-pill-label { font-size: 8px; }
+
+    /* ── Idle overlay ── */
+    .game-idle-inner { padding: 0 12px; }
+    .game-logo       { font-size: clamp(26px,8vw,44px); }
+    .game-subtitle   { font-size: 9px; margin: 6px 0 12px; }
+    .game-rules      { padding: 9px 12px; margin-bottom: 12px; }
+    .game-rule-row   { margin-bottom: 5px; }
+    .game-rule-k     { font-size: 9px; min-width: 66px; }
+    .game-rule-v     { font-size: 9px; }
+
+    /* ── Reveal overlay ── */
+    .game-reveal-inner  { width: 94%; }
+    .game-reveal-icon   { width: 34px; height: 34px; font-size: 17px; }
+    .game-reveal-title  { font-size: 13px; }
+    .game-reveal-body   { padding: 9px 12px; }
+    .game-reveal-row    { margin-bottom: 5px; gap: 8px; }
+    .game-reveal-key    { font-size: 9px; min-width: 72px; }
+    .game-reveal-val    { font-size: 10px; }
+
+    /* ── Game over overlay ── */
+    .game-over-inner  { width: 94%; }
+    .game-over-title  { font-size: clamp(20px,6vw,34px); }
+
+    /* ── Complete overlay ── */
+    .game-complete-inner { width: 94%; }
+    .game-complete-title { font-size: clamp(16px,5vw,26px); margin-bottom: 6px; }
+    .game-contact-box    { padding: 10px 12px; margin-bottom: 10px; }
+    .game-contact-key    { font-size: 9px; min-width: 62px; }
+    .game-contact-val    { font-size: 9px; }
+
+    /* Footer: tighter */
+    .game-footer { padding: 6px 12px; gap: 8px; }
+  }
+
+  /* ── Very small phones ≤380px ── */
+  @media (max-width: 380px) {
+    .game-logo { font-size: 24px; }
+    .game-rules { padding: 8px 10px; }
+    .game-reveal-key { min-width: 62px; }
+    .game-contact-key { min-width: 52px; }
+  }
+`;
+
+function GameStyles() {
+  useEffect(() => {
+    const id = "pawan-game-css";
+    if (!document.getElementById(id)) {
+      const el = document.createElement("style");
+      el.id = id;
+      el.textContent = GAME_CSS;
+      document.head.appendChild(el);
+    }
+  }, []);
+  return null;
+}
+
 /* ═══════════════════════════════════════
-   STAGES — lower score targets, fast unlock
+   STAGES
 ═══════════════════════════════════════ */
 const STAGES = [
   {
@@ -74,16 +260,13 @@ const STAGES = [
 
 const FINAL_ROWS = [
   { key: "EMAIL", val: "pawantiwari8421@gmail.com" },
-  { key: "GITHUB", val: "https://github.com/pawanti8421" },
-  {
-    key: "LINKEDIN",
-    val: "https://www.linkedin.com/in/pawan-umesh-tiwari-a614b3259",
-  },
+  { key: "GITHUB", val: "github.com/pawanti8421" },
+  { key: "LINKEDIN", val: "linkedin.com/in/pawan-umesh-tiwari-a614b3259" },
   { key: "HIRE ME", val: "✅ Open to new opportunities!" },
 ];
 
 /* ═══════════════════════════════════════
-   GAME CONFIG — faster base speed
+   GAME CONFIG
 ═══════════════════════════════════════ */
 const CW = 860,
   CH = 340;
@@ -93,8 +276,8 @@ const P_X = 100,
   P_H = 30;
 const GRAVITY = 0.8;
 const JUMP_FORCE = -16;
-const INIT_SPEED = 5; // ← faster start
-const MAX_SPEED = 9; // ← higher ceiling
+const INIT_SPEED = 5;
+const MAX_SPEED = 9;
 const MAX_HEARTS = 3;
 
 const OBS_DEFS = [
@@ -139,29 +322,21 @@ function mkGame(hi = 0) {
 }
 
 /* ═══════════════════════════════════════
-   CANVAS — only draws the game world
-   Overlays are pure HTML on top
+   CANVAS DRAW FUNCTIONS (unchanged)
 ═══════════════════════════════════════ */
 function drawBg(ctx, g, status) {
-  // Clear
   ctx.fillStyle = "#080808";
   ctx.fillRect(0, 0, CW, CH);
-
-  // Scanlines
   for (let y = 0; y < CH; y += 4) {
     ctx.fillStyle = "rgba(0,0,0,0.14)";
     ctx.fillRect(0, y, CW, 1);
   }
-
-  // Stars
   for (const s of g.bgStars) {
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(255,255,255,${s.alpha})`;
     ctx.fill();
   }
-
-  // Grid
   if (status === "playing") {
     ctx.strokeStyle = "rgba(245,158,11,0.04)";
     ctx.lineWidth = 1;
@@ -172,8 +347,6 @@ function drawBg(ctx, g, status) {
       ctx.stroke();
     }
   }
-
-  // Ground
   const grd = ctx.createLinearGradient(0, GROUND_Y, 0, CH);
   grd.addColorStop(0, "rgba(245,158,11,0.4)");
   grd.addColorStop(0.06, "rgba(245,158,11,0.1)");
@@ -191,10 +364,8 @@ function drawGame(ctx, g) {
   const sy = g.shake > 0 ? (Math.random() - 0.5) * g.shake * 2 : 0;
   ctx.save();
   ctx.translate(sx, sy);
-
   drawBg(ctx, g, "playing");
 
-  // Obstacles
   for (const obs of g.obstacles) {
     ctx.shadowColor = obs.color;
     ctx.shadowBlur = 10;
@@ -213,27 +384,20 @@ function drawGame(ctx, g) {
   }
   ctx.textAlign = "left";
 
-  // Player — blink when invincible
   const p = g.player;
   const blink = p.invincible > 0 && Math.floor(p.invincible / 4) % 2 === 0;
-
   if (!blink) {
     if (!p.dead) {
-      // Glow
       ctx.shadowColor = "#f59e0b";
       ctx.shadowBlur = p.jumping ? 22 : 12;
       ctx.fillStyle = "rgba(245,158,11,0.12)";
       ctx.fillRect(P_X - 6, p.y - 6, P_W + 12, P_H + 12);
       ctx.shadowBlur = 0;
-
-      // Body
       ctx.fillStyle = "#f59e0b";
       ctx.fillRect(P_X, p.y, P_W, P_H);
       ctx.fillStyle = "rgba(255,255,255,0.22)";
       ctx.fillRect(P_X, p.y, P_W, 4);
       ctx.fillRect(P_X, p.y, 4, P_H);
-
-      // Face
       ctx.fillStyle = "#080808";
       ctx.fillRect(P_X + 5, p.y + 8, 5, 5);
       ctx.fillRect(P_X + 16, p.y + 8, 5, 5);
@@ -242,14 +406,11 @@ function drawGame(ctx, g) {
       ctx.fillRect(P_X + 17, p.y + 9, 2, 2);
       ctx.fillStyle = "#080808";
       ctx.fillRect(P_X + 8, p.y + 20, 10, 3);
-
-      // Legs
       const leg = Math.sin(g.frameCount * 0.28) * 5;
       ctx.fillStyle = "#d97706";
       ctx.fillRect(P_X + 3, p.y + P_H, 7, 7 + leg);
       ctx.fillRect(P_X + P_W - 10, p.y + P_H, 7, 7 - leg);
     } else {
-      // Dead X
       ctx.fillStyle = "rgba(244,63,94,0.25)";
       ctx.fillRect(P_X - 4, p.y - 4, P_W + 8, P_H + 8);
       ctx.strokeStyle = "#f43f5e";
@@ -269,7 +430,6 @@ function drawGame(ctx, g) {
     }
   }
 
-  // Particles
   for (const pt of g.particles) {
     ctx.globalAlpha = pt.alpha;
     ctx.fillStyle = pt.color;
@@ -280,7 +440,6 @@ function drawGame(ctx, g) {
   }
   ctx.globalAlpha = 1;
 
-  // HUD — score
   ctx.fillStyle = "rgba(245,158,11,0.9)";
   ctx.font = "bold 13px monospace";
   ctx.fillText(
@@ -296,7 +455,6 @@ function drawGame(ctx, g) {
     42,
   );
 
-  // HUD — stage bar
   const stage = STAGES[g.nextStageIdx];
   if (stage) {
     const barW = 200,
@@ -320,18 +478,13 @@ function drawGame(ctx, g) {
     ctx.fillText(stage.title, CW - 14, 38);
     ctx.textAlign = "left";
   }
-
-  // HUD — speed
   ctx.fillStyle = "rgba(255,255,255,0.12)";
   ctx.font = "9px monospace";
   ctx.fillText(`SPD ×${(g.speed / INIT_SPEED).toFixed(1)}`, CW / 2 - 28, 24);
-
-  // Death flash
   if (g.deathFlash > 0) {
     ctx.fillStyle = `rgba(244,63,94,${g.deathFlash * 0.28})`;
     ctx.fillRect(0, 0, CW, CH);
   }
-
   ctx.restore();
 }
 
@@ -352,7 +505,6 @@ export default function GameIntro() {
   const [revealLines, setRevealLines] = useState([]);
   const [allRowsShown, setAllRowsShown] = useState(false);
 
-  /* ── Particles ── */
   const spawnParticles = useCallback((x, y, color, count = 10) => {
     for (let i = 0; i < count; i++) {
       gRef.current.particles.push({
@@ -368,7 +520,6 @@ export default function GameIntro() {
     }
   }, []);
 
-  /* ── Jump ── */
   const jump = useCallback(() => {
     const g = gRef.current;
     if (g.status !== "playing") return;
@@ -379,7 +530,6 @@ export default function GameIntro() {
     }
   }, [spawnParticles]);
 
-  /* ── Start ── */
   const startGame = useCallback(() => {
     const hi = gRef.current.hiScore;
     const g = mkGame(hi);
@@ -394,7 +544,6 @@ export default function GameIntro() {
     setAllRowsShown(false);
   }, []);
 
-  /* ── Continue after reveal ── */
   const continueGame = useCallback(() => {
     gRef.current.status = "playing";
     setScreen("playing");
@@ -404,7 +553,7 @@ export default function GameIntro() {
 
   const handleFinalContinue = useCallback(() => setScreen("complete"), []);
 
-  /* ── Typewriter — fixed stale-closure ── */
+  /* Typewriter — stale-closure safe */
   useEffect(() => {
     if (screen !== "reveal" || !stageData) return;
     const rows = stageData.rows;
@@ -420,15 +569,14 @@ export default function GameIntro() {
         return;
       }
       const row = rows[cur];
-      if (row && row.key !== undefined) {
+      if (row && row.key !== undefined)
         setRevealLines((prev) => [...prev, { key: row.key, val: row.val }]);
-      }
       idx += 1;
     }, 160);
     return () => clearInterval(iv);
   }, [screen, stageData]);
 
-  /* ── Input ── */
+  /* Input */
   useEffect(() => {
     const handle = () => {
       if (screen === "idle" || screen === "gameover") {
@@ -455,20 +603,16 @@ export default function GameIntro() {
     };
   }, [screen, allRowsShown, jump, startGame, continueGame]);
 
-  /* ── Canvas draw — idle shows static bg only, no player overlap ── */
+  /* Game loop */
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-
     const tick = () => {
       const g = gRef.current;
       rafRef.current = requestAnimationFrame(tick);
-
-      // Non-playing: draw static background only — keeps canvas alive but clean
       if (g.status !== "playing") {
         g.frameCount++;
-        // Scroll stars slowly for atmosphere
         for (const s of g.bgStars) {
           s.x -= s.speed * 0.3;
           if (s.x < 0) {
@@ -479,14 +623,10 @@ export default function GameIntro() {
         drawBg(ctx, g, "idle");
         return;
       }
-
-      // Playing — full game render
       g.frameCount++;
-      g.score += g.speed * 0.05; // ← faster score accumulation
+      g.score += g.speed * 0.05;
       g.speed = Math.min(INIT_SPEED + g.frameCount * 0.0015, MAX_SPEED);
       if (g.frameCount % 6 === 0) setScore(Math.floor(g.score));
-
-      // Stage unlock
       const nextStage = STAGES[g.nextStageIdx];
       if (nextStage && g.score >= nextStage.scoreTarget) {
         g.status = "reveal";
@@ -497,8 +637,6 @@ export default function GameIntro() {
         drawGame(ctx, g);
         return;
       }
-
-      // Parallax stars
       for (const s of g.bgStars) {
         s.x -= s.speed * (g.speed / INIT_SPEED);
         if (s.x < 0) {
@@ -506,14 +644,10 @@ export default function GameIntro() {
           s.y = Math.random() * (GROUND_Y - 30);
         }
       }
-
-      // Ground tiles
       for (let i = 0; i < g.groundTiles.length; i++) {
         g.groundTiles[i] -= g.speed;
         if (g.groundTiles[i] < -28) g.groundTiles[i] = CW + 20;
       }
-
-      // Spawn
       g.spawnIn--;
       if (g.spawnIn <= 0) {
         const def = OBS_DEFS[Math.floor(Math.random() * OBS_DEFS.length)];
@@ -524,8 +658,6 @@ export default function GameIntro() {
       }
       for (const o of g.obstacles) o.x -= g.speed;
       g.obstacles = g.obstacles.filter((o) => o.x + o.w > -20);
-
-      // Physics
       g.player.vy += GRAVITY;
       g.player.y += g.player.vy;
       if (g.player.y >= GROUND_Y - P_H) {
@@ -533,11 +665,7 @@ export default function GameIntro() {
         g.player.vy = 0;
         g.player.jumping = false;
       }
-
-      // Invincibility cooldown
       if (g.player.invincible > 0) g.player.invincible--;
-
-      // Collision — 3-heart system
       if (!g.player.dead && g.player.invincible === 0) {
         for (const obs of g.obstacles) {
           const ox = obs.x,
@@ -560,9 +688,7 @@ export default function GameIntro() {
             );
             g.shake = 5;
             g.deathFlash = 1;
-
             if (g.hearts <= 0) {
-              // Game over
               g.player.dead = true;
               g.player.vy = -9;
               if (g.score > g.hiScore) g.hiScore = g.score;
@@ -571,17 +697,14 @@ export default function GameIntro() {
                 setScreen("gameover");
               }, 900);
             } else {
-              // Lost a heart — brief invincibility + knockback
-              g.player.invincible = 60; // 1 second of invincibility
+              g.player.invincible = 60;
               g.player.vy = -8;
-              // Push obstacle away to avoid instant double-hit
               obs.x = CW + 40;
             }
             break;
           }
         }
       }
-
       if (g.shake > 0) g.shake *= 0.8;
       if (g.deathFlash > 0) g.deathFlash *= 0.83;
       for (const pt of g.particles) {
@@ -591,36 +714,21 @@ export default function GameIntro() {
         pt.alpha -= pt.decay;
       }
       g.particles = g.particles.filter((p) => p.alpha > 0);
-
       drawGame(ctx, g);
     };
-
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
   }, [spawnParticles]);
 
-  /* ── Overlay base style ── */
-  const overlay = {
-    position: "absolute",
-    inset: 0,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: "var(--font-mono)",
-    zIndex: 10,
-  };
-
   const isLastReveal = stageData?.id === STAGES.length;
 
-  /* ── Heart renderer ── */
   const HeartBar = ({ count, total = MAX_HEARTS }) => (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+    <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
       {Array.from({ length: total }, (_, i) => (
         <span
           key={i}
           style={{
-            fontSize: 18,
+            fontSize: 16,
             filter: i < count ? "none" : "grayscale(1) opacity(0.25)",
             transition: "filter 0.3s",
             display: "inline-block",
@@ -633,11 +741,18 @@ export default function GameIntro() {
     </div>
   );
 
+  /* Shared overlay bg */
+  const solidBg = { background: "rgba(8,8,8,0.92)" };
+  const solidBg2 = { background: "rgba(8,8,8,0.95)" };
+  const solidBg3 = { background: "rgba(8,8,8,0.97)" };
+
   return (
     <section id="game" style={{ background: "var(--bg1)" }}>
+      <GameStyles />
+
       <div
         ref={sectionRef}
-        className="section-wrap"
+        className="section-wrap game-section"
         style={{
           opacity: inView ? 1 : 0,
           transform: inView ? "none" : "translateY(32px)",
@@ -669,39 +784,23 @@ export default function GameIntro() {
           </p>
         </div>
 
-        {/* Stage progress pills */}
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            flexWrap: "wrap",
-            marginBottom: 24,
-          }}
-        >
+        {/* Stage pills */}
+        <div className="game-pills">
           {STAGES.map((s, i) => (
             <div
               key={s.id}
+              className="game-pill"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "5px 12px",
-                borderRadius: 20,
                 border: `1px solid ${i < stagesCleared ? s.color : "var(--border)"}`,
                 background: i < stagesCleared ? `${s.color}18` : "transparent",
-                transition: "all 0.4s",
               }}
             >
-              <span style={{ fontSize: 11 }}>
+              <span style={{ fontSize: 10 }}>
                 {i < stagesCleared ? "✓" : i === stagesCleared ? "▶" : "○"}
               </span>
               <span
-                className="f-mono"
-                style={{
-                  fontSize: 10,
-                  color: i < stagesCleared ? s.color : "var(--text3)",
-                  letterSpacing: "0.06em",
-                }}
+                className="f-mono game-pill-label"
+                style={{ color: i < stagesCleared ? s.color : "var(--text3)" }}
               >
                 {s.id}. {s.title.split(".")[0]}
               </span>
@@ -710,199 +809,73 @@ export default function GameIntro() {
         </div>
 
         {/* Game window */}
-        <div
-          style={{
-            position: "relative",
-            borderRadius: 16,
-            overflow: "hidden",
-            border: "1px solid rgba(245,158,11,0.15)",
-            boxShadow:
-              "0 0 60px rgba(245,158,11,0.07), 0 30px 80px rgba(0,0,0,0.7)",
-          }}
-        >
+        <div className="game-window">
           {/* Titlebar */}
-          <div
-            style={{
-              background: "#0f0f0f",
-              borderBottom: "1px solid rgba(245,158,11,0.1)",
-              padding: "9px 16px",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <div
-              style={{
-                width: 11,
-                height: 11,
-                borderRadius: "50%",
-                background: "#ff5f57",
-              }}
-            />
-            <div
-              style={{
-                width: 11,
-                height: 11,
-                borderRadius: "50%",
-                background: "#febc2e",
-              }}
-            />
-            <div
-              style={{
-                width: 11,
-                height: 11,
-                borderRadius: "50%",
-                background: "#28c840",
-              }}
-            />
-            <span
-              className="f-mono"
-              style={{ fontSize: 11, color: "var(--text3)", marginLeft: 8 }}
-            >
+          <div className="game-titlebar">
+            <div className="game-tb-dots">
+              <div className="game-tb-dot" style={{ background: "#ff5f57" }} />
+              <div className="game-tb-dot" style={{ background: "#febc2e" }} />
+              <div className="game-tb-dot" style={{ background: "#28c840" }} />
+            </div>
+            <span className="f-mono game-tb-title">
               PAWAN.RUN — arcade edition
             </span>
-
-            {/* Live hearts in titlebar during game */}
-            {screen === "playing" && (
-              <div
-                style={{
-                  marginLeft: "auto",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                }}
-              >
-                <HeartBar count={hearts} />
-                <span
-                  className="f-mono"
-                  style={{ fontSize: 11, color: "var(--amber)" }}
-                >
-                  {String(score).padStart(5, "0")}
-                </span>
-              </div>
-            )}
-            {screen !== "playing" && (
+            <div className="game-tb-right">
+              {screen === "playing" && <HeartBar count={hearts} />}
               <span
                 className="f-mono"
-                style={{
-                  marginLeft: "auto",
-                  fontSize: 11,
-                  color: "var(--amber)",
-                }}
+                style={{ fontSize: 11, color: "var(--amber)" }}
               >
-                SCORE: {String(score).padStart(5, "0")}
+                {screen === "playing"
+                  ? String(score).padStart(5, "0")
+                  : `SCORE: ${String(score).padStart(5, "0")}`}
               </span>
-            )}
+            </div>
           </div>
 
-          {/* Canvas area */}
-          <div style={{ position: "relative", lineHeight: 0 }}>
+          {/* Canvas + overlays */}
+          <div className="game-canvas-wrap">
             <canvas
               ref={canvasRef}
               width={CW}
               height={CH}
-              style={{
-                display: "block",
-                width: "100%",
-
-                height: "auto",
-              }}
+              className="game-canvas"
             />
 
-            {/* ── IDLE overlay — solid bg so canvas doesn't bleed through ── */}
+            {/* ── IDLE ── */}
             {screen === "idle" && (
-              <div style={{ ...overlay, background: "rgba(8,8,8,0.92)" }}>
-                <div
-                  style={{
-                    textAlign: "center",
-                    maxWidth: 440,
-                    padding: "0 24px",
-                  }}
-                >
-                  {/* Logo */}
-                  <div style={{ marginBottom: 4 }}>
+              <div className="game-overlay" style={solidBg}>
+                <div className="game-idle-inner">
+                  <div>
+                    <span className="f-display grad-text game-logo">PAWAN</span>
                     <span
-                      className="f-display grad-text"
-                      style={{
-                        fontSize: "clamp(36px,6vw,60px)",
-                        fontWeight: 900,
-                        letterSpacing: "-0.03em",
-                      }}
-                    >
-                      PAWAN
-                    </span>
-                    <span
-                      className="f-display"
-                      style={{
-                        fontSize: "clamp(36px,6vw,60px)",
-                        fontWeight: 900,
-                        letterSpacing: "-0.03em",
-                        color: "var(--text3)",
-                      }}
+                      className="f-display game-logo"
+                      style={{ color: "var(--text3)" }}
                     >
                       .RUN
                     </span>
                   </div>
-                  <div
-                    style={{
-                      color: "var(--emerald)",
-                      fontSize: 11,
-                      letterSpacing: "0.2em",
-                      marginBottom: 28,
-                      marginTop: 20,
-                    }}
-                  >
-                    — ARCADE EDITION —
-                  </div>
-
-                  {/* Rules table */}
-                  <div
-                    style={{
-                      background: "rgba(245,158,11,0.05)",
-                      border: "1px solid rgba(245,158,11,0.18)",
-                      borderRadius: 12,
-                      padding: "16px 20px",
-                      marginBottom: 28,
-                      textAlign: "left",
-                      gridTemplateColumns: "120px 1fr",
-                    }}
-                  >
+                  <div className="game-subtitle f-mono">— ARCADE EDITION —</div>
+                  <div className="game-rules">
                     {[
                       ["LIVES", "❤️ ❤️ ❤️  Three chances"],
-                      ["JUMP", "SPACE · ↑ · Click"],
-                      ["HIT BUG", "Lose ❤️ + invincibility flash"],
-                      ["NO HEARTS", "Game over — restart from zero"],
-                      ["WIN", "5 stages cleared → complete!"],
+                      ["JUMP", "SPACE · ↑ · Click / Tap"],
+                      ["HIT BUG", "Lose ❤️ + brief shield"],
+                      ["NO HEARTS", "Game over → restart"],
+                      ["WIN", "5 stages → complete!"],
                     ].map(([k, v]) => (
-                      <div
-                        key={k}
-                        style={{
-                          display: "flex",
-                          gap: 5,
-                          marginBottom: 20,
-                          fontSize: 12,
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: "var(--amber)",
-                            minWidth: 82,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {k}
-                        </span>
-                        <span style={{ color: "var(--text2)" }}>{v}</span>
+                      <div key={k} className="game-rule-row">
+                        <span className="f-mono game-rule-k">{k}</span>
+                        <span className="game-rule-v">{v}</span>
                       </div>
                     ))}
                   </div>
-
                   <button
                     className="btn-amber"
                     onClick={startGame}
                     style={{
-                      fontSize: 14,
-                      padding: "13px 44px",
+                      fontSize: 13,
+                      padding: "11px 0",
                       borderRadius: 8,
                       width: "100%",
                       justifyContent: "center",
@@ -912,8 +885,8 @@ export default function GameIntro() {
                   </button>
                   <div
                     style={{
-                      marginTop: 14,
-                      fontSize: 11,
+                      marginTop: 10,
+                      fontSize: 10,
                       color: "var(--text3)",
                       animation: "blink 1.2s step-end infinite",
                     }}
@@ -924,70 +897,37 @@ export default function GameIntro() {
               </div>
             )}
 
-            {/* ── STAGE REVEAL — solid bg ── */}
+            {/* ── REVEAL ── */}
             {screen === "reveal" && stageData != null && (
-              <div style={{ ...overlay, background: "rgba(8,8,8,0.95)" }}>
-                <div style={{ width: "88%", maxWidth: 520 }}>
-                  {/* Stage badge */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      marginBottom: 18,
-                    }}
-                  >
+              <div className="game-overlay" style={solidBg2}>
+                <div className="game-reveal-inner">
+                  <div className="game-reveal-head">
                     <div
+                      className="game-reveal-icon"
                       style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: 10,
                         background: `${stageData.color}18`,
                         border: `1px solid ${stageData.color}40`,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 22,
-                        flexShrink: 0,
                       }}
                     >
                       {stageData.emoji}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="game-reveal-meta">
                       <div
-                        className="f-mono"
-                        style={{
-                          fontSize: 10,
-                          color: stageData.color,
-                          letterSpacing: "0.14em",
-                          marginBottom: 3,
-                        }}
+                        className="f-mono game-reveal-stage-label"
+                        style={{ color: stageData.color }}
                       >
                         STAGE {stageData.id}/{STAGES.length} CLEARED ✓
                       </div>
-                      <div
-                        className="f-display"
-                        style={{
-                          fontSize: "clamp(15px,2vw,20px)",
-                          fontWeight: 700,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
+                      <div className="f-display game-reveal-title">
                         {stageData.title}
                       </div>
                     </div>
                     <span
-                      className="f-mono"
+                      className="f-mono game-reveal-badge"
                       style={{
-                        fontSize: 11,
                         color: stageData.color,
                         background: `${stageData.color}15`,
                         border: `1px solid ${stageData.color}30`,
-                        padding: "4px 10px",
-                        borderRadius: 6,
-                        flexShrink: 0,
                       }}
                     >
                       UNLOCKED
@@ -998,70 +938,34 @@ export default function GameIntro() {
                     style={{
                       height: 1,
                       background: `linear-gradient(to right, ${stageData.color}60, transparent)`,
-                      marginBottom: 16,
+                      marginBottom: 12,
                     }}
                   />
 
-                  {/* Typewriter output */}
                   <div
+                    className="game-reveal-body"
                     style={{
                       background: "#0a0a0a",
                       border: `1px solid ${stageData.color}25`,
-                      borderRadius: 10,
-                      padding: "16px 20px",
-                      minHeight: 100,
                     }}
                   >
                     {revealLines.map((row, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          gap: 14,
-                          marginBottom: 5,
-                          alignItems: "flex-start", // ✅ fixes overlap for multiline
-                          animation: "fadeIn 0.25s ease",
-                        }}
-                      >
-                        {/* KEY */}
+                      <div key={i} className="game-reveal-row">
                         <span
-                          style={{
-                            color: stageData.color,
-                            minWidth: 120, // ✅ fixed alignment width
-                            flexShrink: 0, // ✅ prevents collapsing
-                            fontSize: 11,
-                            fontWeight: 600,
-                            letterSpacing: "0.08em",
-                            fontFamily: "monospace",
-                            lineHeight: "15px",
-                          }}
+                          className="game-reveal-key f-mono"
+                          style={{ color: stageData.color }}
                         >
                           {row.key}
                         </span>
-
-                        {/* VALUE */}
-                        <span
-                          style={{
-                            color: "var(--text)",
-                            fontSize: 12,
-                            lineHeight: "15px", // ✅ proper vertical spacing
-                            wordBreak: "break-word", // ✅ prevents overflow
-                            whiteSpace: "normal", // ✅ allows wrapping
-                            flex: 1, // ✅ takes remaining space
-                          }}
-                        >
-                          {row.val}
-                        </span>
+                        <span className="game-reveal-val">{row.val}</span>
                       </div>
                     ))}
-
-                    {/* CURSOR */}
                     {!allRowsShown && (
                       <span
                         style={{
                           color: stageData.color,
-                          animation: "blink 0.7s step-end infinite",
-                          fontSize: 14,
+                          animation: "blink 0.65s step-end infinite",
+                          fontSize: 13,
                         }}
                       >
                         ▋
@@ -1072,7 +976,7 @@ export default function GameIntro() {
                   {allRowsShown && (
                     <div
                       style={{
-                        marginTop: 18,
+                        marginTop: 14,
                         display: "flex",
                         justifyContent: "center",
                         animation: "fadeIn 0.4s ease",
@@ -1084,8 +988,8 @@ export default function GameIntro() {
                           isLastReveal ? handleFinalContinue : continueGame
                         }
                         style={{
-                          padding: "11px 36px",
-                          fontSize: 13,
+                          padding: "10px 32px",
+                          fontSize: 12,
                           borderRadius: 8,
                         }}
                       >
@@ -1099,53 +1003,38 @@ export default function GameIntro() {
               </div>
             )}
 
-            {/* ── GAME OVER — solid bg ── */}
+            {/* ── GAME OVER ── */}
             {screen === "gameover" && (
-              <div style={{ ...overlay, background: "rgba(8,8,8,0.95)" }}>
-                <div style={{ textAlign: "center", maxWidth: 380 }}>
-                  <div style={{ fontSize: 56, marginBottom: 8 }}>💥</div>
-                  <div
-                    className="f-display"
-                    style={{
-                      fontSize: "clamp(28px,5vw,44px)",
-                      fontWeight: 900,
-                      color: "#f43f5e",
-                      marginBottom: 6,
-                      marginTop: 50,
-                    }}
-                  >
-                    GAME OVER
-                  </div>
+              <div className="game-overlay" style={solidBg2}>
+                <div className="game-over-inner">
+                  <div style={{ fontSize: 46, marginBottom: 40 }}>💥</div>
+                  <div className="f-display game-over-title">GAME OVER</div>
                   <div
                     className="f-mono"
                     style={{
-                      fontSize: 12,
+                      fontSize: 11,
                       color: "var(--text3)",
                       marginBottom: 20,
-                      marginTop: 30,
+                      marginTop: 20,
                     }}
                   >
-                    all hearts lost · story reset to zero
+                    all hearts lost · story reset
                   </div>
-
-                  {/* Dead hearts */}
                   <div
                     style={{
                       display: "flex",
                       justifyContent: "center",
-                      gap: 8,
                       marginBottom: 20,
                     }}
                   >
                     <HeartBar count={0} />
                   </div>
-
                   <div
                     style={{
                       display: "flex",
                       justifyContent: "center",
                       gap: 28,
-                      marginBottom: 24,
+                      marginBottom: 20,
                     }}
                   >
                     {[
@@ -1156,7 +1045,7 @@ export default function GameIntro() {
                         <div
                           className="f-mono"
                           style={{
-                            fontSize: 10,
+                            fontSize: 9,
                             color: "var(--text3)",
                             marginBottom: 20,
                           }}
@@ -1166,7 +1055,7 @@ export default function GameIntro() {
                         <div
                           className="f-display"
                           style={{
-                            fontSize: 26,
+                            fontSize: 24,
                             fontWeight: 900,
                             color:
                               l === "BEST" ? "var(--amber)" : "var(--text)",
@@ -1177,14 +1066,12 @@ export default function GameIntro() {
                       </div>
                     ))}
                   </div>
-
-                  {/* Cleared stages recap */}
                   {stagesCleared > 0 && (
                     <div
                       style={{
-                        marginBottom: 20,
+                        marginBottom: 12,
                         display: "flex",
-                        gap: 7,
+                        gap: 6,
                         justifyContent: "center",
                         flexWrap: "wrap",
                       }}
@@ -1193,9 +1080,9 @@ export default function GameIntro() {
                         <div
                           key={s.id}
                           style={{
-                            padding: "3px 10px",
-                            borderRadius: 12,
-                            fontSize: 10,
+                            padding: "2px 8px",
+                            borderRadius: 10,
+                            fontSize: 9,
                             fontFamily: "var(--font-mono)",
                             background:
                               i < stagesCleared
@@ -1210,13 +1097,12 @@ export default function GameIntro() {
                       ))}
                     </div>
                   )}
-
                   <button
                     className="btn-amber"
                     onClick={startGame}
                     style={{
-                      fontSize: 14,
-                      padding: "12px 40px",
+                      fontSize: 13,
+                      padding: "11px 0",
                       borderRadius: 8,
                       width: "100%",
                       justifyContent: "center",
@@ -1226,8 +1112,8 @@ export default function GameIntro() {
                   </button>
                   <div
                     style={{
-                      marginTop: 12,
-                      fontSize: 11,
+                      marginTop: 10,
+                      fontSize: 10,
                       color: "var(--text3)",
                       animation: "blink 1.2s step-end infinite",
                     }}
@@ -1238,41 +1124,21 @@ export default function GameIntro() {
               </div>
             )}
 
-            {/* ── COMPLETE — solid bg ── */}
+            {/* ── COMPLETE ── */}
             {screen === "complete" && (
-              <div
-                style={{
-                  ...overlay,
-                  background: "rgba(8,8,8,0.97)",
-                  overflowY: "auto",
-                }}
-              >
-                <div
-                  style={{
-                    textAlign: "center",
-                    width: "90%",
-                    maxWidth: 500,
-                    padding: "16px 0",
-                  }}
-                >
-                  <div style={{ fontSize: 48, marginBottom: 8 }}>🏆</div>
-                  <div
-                    className="f-display"
-                    style={{
-                      fontSize: "clamp(22px,4vw,36px)",
-                      fontWeight: 900,
-                      marginBottom: 25,
-                      marginTop: 54,
-                    }}
-                  >
+              <div className="game-overlay" style={solidBg3}>
+                <div className="game-complete-inner">
+                  <div style={{ fontSize: 40, marginBottom: 40 }}>🏆</div>
+                  <div className="f-display game-complete-title">
                     <span className="grad-text">MISSION COMPLETE!</span>
                   </div>
                   <div
                     className="f-mono"
                     style={{
-                      fontSize: 11,
+                      fontSize: 10,
                       color: "var(--text2)",
                       marginBottom: 20,
+                      marginTop: 30,
                       letterSpacing: "0.1em",
                     }}
                   >
@@ -1281,17 +1147,17 @@ export default function GameIntro() {
                   <div
                     style={{
                       display: "flex",
-                      gap: 7,
+                      gap: 5,
                       justifyContent: "center",
                       flexWrap: "wrap",
-                      marginBottom: 20,
+                      marginBottom: 12,
                     }}
                   >
                     {STAGES.map((s) => (
                       <div
                         key={s.id}
                         style={{
-                          padding: "4px 12px",
+                          padding: "3px 9px",
                           borderRadius: 20,
                           background: `${s.color}18`,
                           border: `1px solid ${s.color}40`,
@@ -1304,89 +1170,48 @@ export default function GameIntro() {
                       </div>
                     ))}
                   </div>
-                  <div
-                    style={{
-                      background: "rgba(245,158,11,0.05)",
-                      border: "1px solid rgba(245,158,11,0.2)",
-                      borderRadius: 12,
-                      padding: "18px 22px",
-                      marginBottom: 20,
-                      textAlign: "left",
-                    }}
-                  >
+                  <div className="game-contact-box">
                     <div
                       className="f-mono"
                       style={{
-                        fontSize: 10,
+                        fontSize: 11,
                         color: "var(--amber)",
-                        letterSpacing: "0.14em",
-                        marginBottom: 15,
+                        letterSpacing: "0.12em",
+                        marginBottom: 20,
                       }}
                     >
                       {">"} CONTACT_INFO.JSON
                     </div>
                     {FINAL_ROWS.map((row) => (
-                      <div
-                        key={row.key}
-                        style={{
-                          display: "flex",
-                          gap: 12,
-                          marginBottom: 14,
-                          fontSize: 12,
-                          lineHeight: "12px",
-                        }}
-                      >
-                        <span
-                          className="f-mono"
-                          style={{
-                            color: "var(--amber)",
-                            minWidth: 82,
-                            flexShrink: 0,
-                          }}
-                        >
+                      <div key={row.key} className="game-contact-row">
+                        <span className="f-mono game-contact-key">
                           {row.key}
                         </span>
-                        <span style={{ color: "var(--text)" }}>{row.val}</span>
+                        <span className="game-contact-val">{row.val}</span>
                       </div>
                     ))}
                   </div>
                   <div
                     style={{
                       display: "flex",
-                      gap: 10,
+                      gap: 8,
                       justifyContent: "center",
                       flexWrap: "wrap",
                     }}
                   >
                     <a
                       onClick={() =>
-                        (window.location.href = `mailto:pawantiwari8421@gmail.com?subject=${encodeURIComponent(
-                          "Opportunity to Work Together",
-                        )}&body=${encodeURIComponent(
-                          `Hi Pawan,
-
-I came across your portfolio and would like to discuss a potential opportunity with you.
-
-[Please add details about the role here]
-
-----------------------------------------
-📎 You can also attach the job description (JD) if available.
-----------------------------------------
-
-Looking forward to connecting.
-
-Best regards,`,
-                        )}`)
+                        (window.location.href = `mailto:pawantiwari8421@gmail.com?subject=${encodeURIComponent("Opportunity to Work Together")}&body=${encodeURIComponent("Hi Pawan,\n\nI came across your portfolio and would like to discuss an opportunity.\n\nBest regards,")}`)
                       }
                       className="btn-amber"
-                      style={{ fontSize: 13 }}
+                      style={{ fontSize: 12, cursor: "pointer" }}
                     >
                       ✉ Hire Me
                     </a>
                     <button
                       className="btn-ghost"
                       onClick={startGame}
-                      style={{ fontSize: 13 }}
+                      style={{ fontSize: 12 }}
                     >
                       ↺ Play Again
                     </button>
@@ -1394,8 +1219,8 @@ Best regards,`,
                   <div
                     className="f-mono"
                     style={{
-                      marginTop: 14,
-                      fontSize: 11,
+                      marginTop: 10,
+                      fontSize: 10,
                       color: "var(--text3)",
                     }}
                   >
@@ -1409,23 +1234,13 @@ Best regards,`,
             )}
           </div>
 
-          {/* Footer bar */}
-          <div
-            style={{
-              background: "#0a0a0a",
-              borderTop: "1px solid rgba(245,158,11,0.08)",
-              padding: "8px 16px",
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              flexWrap: "wrap",
-            }}
-          >
+          {/* Footer */}
+          <div className="game-footer">
             <span
               className="f-mono"
               style={{ fontSize: 10, color: "var(--text3)" }}
             >
-              <span style={{ color: "var(--amber)" }}>SPACE / ↑ / CLICK</span> =
+              <span style={{ color: "var(--amber)" }}>SPACE / ↑ / TAP</span> =
               jump
             </span>
             <span
@@ -1469,7 +1284,7 @@ Best regards,`,
             className="f-mono"
             style={{
               textAlign: "center",
-              marginTop: 18,
+              marginTop: 16,
               fontSize: 11,
               color: "var(--text3)",
               animation: "fadeIn 0.6s ease",
